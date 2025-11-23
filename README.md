@@ -1,6 +1,6 @@
-# VLC Fundraising Event Planner
+# Village Lutheran Church (VLC) Fundraising Event Planner
 
-A React application for planning and comparing fundraising events for Chapel School. Calculate profitability, efficiency metrics, and manage event details.
+A React application for planning and comparing fundraising events for Village Lutheran Church (VLC) and The Chapel School. Calculate profitability, efficiency metrics, and manage event details.
 
 **Live Site:** https://vlc-fundraising-event-planner-exa9znmfu.vercel.app
 
