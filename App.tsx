@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { Star, BarChart3, Users, DollarSign, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Star, BarChart3, Users, DollarSign, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import jsPDF from 'jspdf';
 
 // --- Type Definitions ---
 type EventKey =
@@ -29,6 +30,20 @@ type EventMetrics = {
 
 type SortKey = 'netProfit' | 'totalPersonPower' | 'profitPerPerson' | 'difficulty';
 type SortDirection = 'asc' | 'desc';
+
+type PnLItem = {
+  label: string;
+  amount: number;
+  type: 'revenue' | 'expense';
+};
+
+type EventPnL = {
+  revenueItems: PnLItem[];
+  expenseItems: PnLItem[];
+  totalRevenue: number;
+  totalExpenses: number;
+  netProfit: number;
+};
 
 
 // --- Data Configuration ---
@@ -314,6 +329,80 @@ const calculateMetricsForEvent = (event: EventConfig, inputValues: Record<string
   };
 };
 
+const calculatePnLForEvent = (event: EventConfig, inputValues: Record<string, string>): EventPnL => {
+  const key = (label: string) => `${event.id}-${label}`;
+  const val = (label: string): number => getNum(inputValues[key(label)]);
+
+  let revenueItems: PnLItem[] = [];
+  let expenseItems: PnLItem[] = [];
+
+  if (event.id === 'camps') {
+    const avgPrice = val("Revenue: Average price per student ($)");
+    const numStudents = val("Revenue: Average number of students");
+    revenueItems.push({ label: "Tuition Fees", amount: avgPrice * numStudents, type: 'revenue' });
+
+    const counselorRate = val("Expense: Counselor hourly rate ($)");
+    const counselorHours = val("Expense: Counselor hours (per day)");
+    const ratio = val("Expense: Counselor to student ratio (1:N)");
+    const numCounselors = Math.ceil(numStudents / ratio);
+    const counselorTime = numCounselors * counselorHours;
+
+    expenseItems.push({ label: "Counselor Wages", amount: counselorRate * counselorTime, type: 'expense' });
+    expenseItems.push({ label: "Receptionist Wages", amount: val("Expense: Receptionist rate ($)") * val("Expense: Receptionist hours"), type: 'expense' });
+    expenseItems.push({ label: "Cleaner Wages", amount: val("Expense: Cleaner rate ($)") * val("Expense: Cleaner hours"), type: 'expense' });
+    expenseItems.push({ label: "Supplies", amount: val("Fixed: Supplies cost ($)"), type: 'expense' });
+    expenseItems.push({ label: "Insurance", amount: val("Fixed: Insurance cost ($)"), type: 'expense' });
+    expenseItems.push({ label: "Food & Snacks", amount: val("Variable: Food and snacks cost per student ($)") * numStudents, type: 'expense' });
+
+  } else if (event.id === 'satPsat' || event.id === 'tachs') {
+    const price = val("Revenue: Price per student ($)");
+    const numStudents = val("Revenue: Number of students");
+    revenueItems.push({ label: "Tuition Fees", amount: price * numStudents, type: 'revenue' });
+
+    const instructionHours = val("Expense: Total instruction hours");
+    expenseItems.push({ label: "Instructor Wages", amount: val("Expense: Instructor hourly rate ($)") * instructionHours, type: 'expense' });
+    expenseItems.push({ label: "Admin Support Wages", amount: val("Expense: Admin support rate ($)") * val("Expense: Admin support hours"), type: 'expense' });
+    expenseItems.push({ label: "Cleaner Wages", amount: val("Expense: Cleaner rate ($)") * val("Expense: Cleaner hours"), type: 'expense' });
+    expenseItems.push({ label: "Materials", amount: val("Expense: Materials cost per student ($)") * numStudents, type: 'expense' });
+
+  } else if (event.id === 'market') {
+    const numTables = val("Revenue: Number of tables");
+    const pricePerTable = val("Revenue: Price per table ($)");
+    const percentSales = val("Revenue: Percent of vendor sales (%)") / 100;
+
+    revenueItems.push({ label: "Table Rentals", amount: numTables * pricePerTable, type: 'revenue' });
+    revenueItems.push({ label: "Sales Commission (Est.)", amount: percentSales * 500 * numTables, type: 'revenue' });
+
+    expenseItems.push({ label: "Receptionist Wages", amount: val("Expense: Receptionist rate ($)") * val("Expense: Receptionist hours"), type: 'expense' });
+    expenseItems.push({ label: "Cleaner Wages", amount: val("Expense: Cleaner rate ($)") * val("Expense: Cleaner hours"), type: 'expense' });
+    expenseItems.push({ label: "Marketing", amount: val("Fixed: Marketing cost ($)"), type: 'expense' });
+    expenseItems.push({ label: "Supplies & Decor", amount: val("Fixed: Supplies and decorations cost ($)"), type: 'expense' });
+    expenseItems.push({ label: "Insurance/Rider", amount: val("Fixed: Insurance or rider cost ($)"), type: 'expense' });
+
+  } else if (event.id === 'sipPaint') {
+    const ticketPrice = val("Revenue: Ticket price per person ($)");
+    const numAttendees = val("Revenue: Number of attendees");
+    revenueItems.push({ label: "Ticket Sales", amount: ticketPrice * numAttendees, type: 'revenue' });
+
+    expenseItems.push({ label: "Instructor Fee", amount: val("Expense: Instructor cost ($)"), type: 'expense' });
+    expenseItems.push({ label: "Receptionist Wages", amount: val("Expense: Receptionist rate ($)") * val("Expense: Receptionist hours"), type: 'expense' });
+    expenseItems.push({ label: "Cleaner Wages", amount: val("Expense: Cleaner rate ($)") * val("Expense: Cleaner hours"), type: 'expense' });
+    expenseItems.push({ label: "Wine", amount: val("Expense: Bottles of wine needed") * val("Expense: Cost per bottle ($)"), type: 'expense' });
+    expenseItems.push({ label: "Supplies (Paint/Canvas)", amount: val("Fixed: Supplies cost (paint, brushes, canvas) ($)"), type: 'expense' });
+  }
+
+  const totalRevenue = revenueItems.reduce((sum, item) => sum + item.amount, 0);
+  const totalExpenses = expenseItems.reduce((sum, item) => sum + item.amount, 0);
+
+  return {
+    revenueItems,
+    expenseItems,
+    totalRevenue,
+    totalExpenses,
+    netProfit: totalRevenue - totalExpenses
+  };
+};
+
 const calculateAllMetrics = (inputValues: Record<string, string>, difficulties: Record<EventKey, number>): EventMetrics[] => {
   return EVENTS.map(event => calculateMetricsForEvent(event, inputValues, difficulties));
 };
@@ -395,6 +484,61 @@ const SortableHeader: React.FC<{ label: string, sortKey: SortKey, currentSortKey
   );
 };
 
+const ProfitLossStatement: React.FC<{ pnl: EventPnL }> = ({ pnl }) => {
+  return (
+    <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
+      <div className="bg-slate-50 px-6 py-4 border-b border-slate-100">
+        <h3 className="text-lg font-bold text-slate-900">Profit & Loss Statement</h3>
+      </div>
+      <div className="p-6 space-y-6">
+        {/* Revenue Section */}
+        <div>
+          <h4 className="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-3">Revenue</h4>
+          <div className="space-y-2">
+            {pnl.revenueItems.map((item, idx) => (
+              <div key={idx} className="flex justify-between text-sm">
+                <span className="text-slate-600">{item.label}</span>
+                <span className="font-medium text-slate-900">${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            ))}
+            <div className="pt-2 mt-2 border-t border-slate-100 flex justify-between text-sm font-bold">
+              <span className="text-slate-900">Total Revenue</span>
+              <span className="text-emerald-600">${pnl.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Expenses Section */}
+        <div>
+          <h4 className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-3">Expenses</h4>
+          <div className="space-y-2">
+            {pnl.expenseItems.map((item, idx) => (
+              <div key={idx} className="flex justify-between text-sm">
+                <span className="text-slate-600">{item.label}</span>
+                <span className="font-medium text-slate-900">${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            ))}
+            <div className="pt-2 mt-2 border-t border-slate-100 flex justify-between text-sm font-bold">
+              <span className="text-slate-900">Total Expenses</span>
+              <span className="text-red-600">${pnl.totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Net Profit Section */}
+        <div className="pt-4 border-t-2 border-slate-100">
+          <div className="flex justify-between items-center">
+            <span className="text-base font-bold text-slate-900">Net Profit</span>
+            <span className={`text-xl font-bold ${pnl.netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              ${pnl.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 
 const App: React.FC = () => { // Renamed component to App
   const [selectedId, setSelectedId] = useState<EventKey>("camps");
@@ -466,6 +610,114 @@ const App: React.FC = () => { // Renamed component to App
 
   // --- Calculate Metrics for the Selected Event ---
   const selectedMetric = allEventMetrics.find(m => m.id === selectedId)!;
+  const selectedPnL = calculatePnLForEvent(selected, inputValues);
+
+  const handleDownloadPDF = useCallback(() => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    let yPos = 20;
+
+    // Title
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Village Lutheran Church (VLC)', margin, yPos);
+    yPos += 8;
+    doc.text('Fundraising Event Planner', margin, yPos);
+    yPos += 15;
+
+    // Event Name
+    doc.setFontSize(16);
+    doc.text(selected.name, margin, yPos);
+    yPos += 8;
+
+    // Seasonality
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Seasonality: ${selected.seasonality}`, margin, yPos);
+    yPos += 10;
+
+    // Summary
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Event Summary', margin, yPos);
+    yPos += 6;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    const summaryLines = doc.splitTextToSize(selected.summary, pageWidth - 2 * margin);
+    doc.text(summaryLines, margin, yPos);
+    yPos += summaryLines.length * 5 + 8;
+
+    // Metrics
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Key Metrics', margin, yPos);
+    yPos += 6;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Net Profit: $${selectedMetric.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, margin, yPos);
+    yPos += 6;
+    doc.text(`Total Person Power: ${selectedMetric.totalPersonPower.toFixed(1)} hours`, margin, yPos);
+    yPos += 6;
+    doc.text(`Profit per Person Hour: $${selectedMetric.profitPerPerson.toFixed(2)}`, margin, yPos);
+    yPos += 6;
+    doc.text(`Difficulty: ${difficulty[selected.id]} Stars (${difficultyLabels[difficulty[selected.id]]})`, margin, yPos);
+    yPos += 10;
+
+    // Profit & Loss Statement
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Profit & Loss Statement', margin, yPos);
+    yPos += 8;
+
+    // Revenue
+    doc.setFontSize(11);
+    doc.setTextColor(16, 185, 129); // emerald-600
+    doc.text('REVENUE', margin, yPos);
+    yPos += 6;
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+    selectedPnL.revenueItems.forEach(item => {
+      doc.text(`${item.label}:`, margin + 5, yPos);
+      doc.text(`$${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, pageWidth - margin - 40, yPos);
+      yPos += 5;
+    });
+    doc.setFont('helvetica', 'bold');
+    doc.text('Total Revenue:', margin + 5, yPos);
+    doc.text(`$${selectedPnL.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, pageWidth - margin - 40, yPos);
+    yPos += 10;
+
+    // Expenses
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(220, 38, 38); // red-600
+    doc.text('EXPENSES', margin, yPos);
+    yPos += 6;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(0, 0, 0);
+    selectedPnL.expenseItems.forEach(item => {
+      doc.text(`${item.label}:`, margin + 5, yPos);
+      doc.text(`$${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, pageWidth - margin - 40, yPos);
+      yPos += 5;
+    });
+    doc.setFont('helvetica', 'bold');
+    doc.text('Total Expenses:', margin + 5, yPos);
+    doc.text(`$${selectedPnL.totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, pageWidth - margin - 40, yPos);
+    yPos += 10;
+
+    // Net Profit
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Net Profit:', margin, yPos);
+    const profitColor = selectedPnL.netProfit >= 0 ? [16, 185, 129] : [220, 38, 38];
+    doc.setTextColor(profitColor[0], profitColor[1], profitColor[2]);
+    doc.text(`$${selectedPnL.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, pageWidth - margin - 40, yPos);
+
+    // Save PDF
+    doc.save(`${selected.name.replace(/\s+/g, '_')}_Event_Plan.pdf`);
+  }, [selected, selectedMetric, selectedPnL, difficulty]);
+
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 font-sans">
@@ -648,12 +900,24 @@ const App: React.FC = () => { // Renamed component to App
             < div className="xl:col-span-2 space-y-6" >
               {/* Event Summary Card */}
               < div className="bg-white rounded-2xl shadow-xl p-6" >
-                <h2 className="text-xl font-bold text-slate-900">
-                  {selected.name}
-                </h2>
-                <p className="mt-1 text-sm text-indigo-600 font-medium">
-                  Seasonality: {selected.seasonality}
-                </p>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">
+                      {selected.name}
+                    </h2>
+                    <p className="mt-1 text-sm text-indigo-600 font-medium">
+                      Seasonality: {selected.seasonality}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadPDF}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors duration-150 shadow-md hover:shadow-lg"
+                    title="Download Event Plan as PDF"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span className="text-sm font-medium">Download PDF</span>
+                  </button>
+                </div>
                 <hr className="my-4 border-slate-100" />
                 <p className="text-base text-slate-700 leading-relaxed">
                   {selected.summary}
@@ -672,35 +936,41 @@ const App: React.FC = () => { // Renamed component to App
                     </li>
                   ))}
                 </ul>
-              </div >
-            </div >
+              </div>
 
-            {/* Inputs and notes (Right Column) */}
-            < div className="space-y-6" >
               {/* Input Fields Card */}
-              < div className="bg-white rounded-2xl shadow-xl p-6" >
+              <div className="bg-white rounded-2xl shadow-xl p-6">
                 <h3 className="text-lg font-bold text-slate-900 mb-4">
                   Profitability Inputs
                 </h3>
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {selected.fields.map(field => {
                     const fieldKey = `${selected.id}-${field.label}`;
                     return (
-                      <div key={fieldKey} className="space-y-1">
-                        <label className="text-xs font-medium text-slate-600 block">
+                      <div key={fieldKey} className="flex items-center justify-between gap-4">
+                        <label className="text-sm font-medium text-slate-600">
                           {field.label}
                         </label>
                         <input
                           type="text"
                           value={inputValues[fieldKey] || ''}
                           onChange={(e) => handleInputChange(fieldKey, e.target.value)}
-                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow duration-150 shadow-inner"
+                          className="w-40 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-900 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow duration-150 shadow-sm"
                         />
                       </div>
                     );
                   })}
                 </div>
-              </div >
+              </div>
+
+              {/* Profit & Loss Statement */}
+              <ProfitLossStatement pnl={selectedPnL} />
+            </div >
+
+            {/* Inputs and notes (Right Column) */}
+            <div className="space-y-6">
+
+
 
               {/* Difficulty and Notes Card */}
               < div className="bg-white rounded-2xl shadow-xl p-6" >

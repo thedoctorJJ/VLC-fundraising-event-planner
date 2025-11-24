@@ -12,6 +12,9 @@ A React application for planning and comparing fundraising events for Village Lu
 - Editable inputs for revenue and expenses
 - Difficulty ratings and notes for each event
 - Real-time profitability calculations
+- **Detailed Profit & Loss (P&L) statements** for each event
+- **PDF export** capability for P&L statements
+- Comprehensive revenue and expense breakdowns
 - Responsive design with modern UI
 
 ## Local Development
@@ -28,6 +31,12 @@ npm run build
 
 # Preview production build
 npm run preview
+
+# Run linter
+npm run lint
+
+# Fix linting errors automatically
+npm run lint:fix
 ```
 
 ## Deployment to Vercel
@@ -107,6 +116,8 @@ vlc-fundraising-event-planner/
 - **Vite** - Build tool and dev server
 - **Tailwind CSS** - Styling
 - **Lucide React** - Icons
+- **jsPDF** - PDF generation for P&L statements
+- **ESLint** - Code linting and quality
 
 ## Event Types
 
